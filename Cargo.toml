@@ -2,6 +2,21 @@
 name = "weave_tool_egui"
 version = "0.1.0"
 edition = "2021"
+authors = ["Your Name <your.email@example.com>"]
+description = "A modern image viewer built with egui"
+license = "MIT"
+repository = "https://github.com/yourusername/weave_tool_egui"
+keywords = ["image", "viewer", "egui", "gui"]
+categories = ["multimedia::images", "gui"]
+
+# 支持库和二进制文件
+[lib]
+name = "weave_tool_egui"
+path = "src/lib.rs"
+
+[[bin]]
+name = "weave_tool_egui"
+path = "src/main.rs"
 
 [dependencies]
 eframe = "0.33"
