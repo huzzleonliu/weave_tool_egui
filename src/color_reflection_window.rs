@@ -9,6 +9,13 @@ pub struct ColorReflectionWindow {
     pub slider_amount_input: String,
     pub slider_amount: Option<usize>,
     pub slider_values: Vec<f32>,
+    pub reflection_mode: ReflectionMode,
+}
+
+#[derive(PartialEq)]
+pub enum ReflectionMode {
+    Average,
+    Partial,
 }
 
 impl Default for ColorReflectionWindow {
@@ -18,6 +25,7 @@ impl Default for ColorReflectionWindow {
             slider_amount_input: String::new(),
             slider_amount: None,
             slider_values: Vec::new(),
+            reflection_mode: ReflectionMode::Average,
         }
     }
 }
@@ -81,6 +89,8 @@ impl ColorReflectionWindow {
             }
         });
 
+
+
         ui.add_space(10.0);
 
         // 第二行：单根滑动条上的多个滑块
@@ -101,6 +111,15 @@ impl ColorReflectionWindow {
         } else {
             ui.label("Please enter slider amount (1-10) and click confirm");
         }
+
+        ui.add_space(10.0);
+
+        // 第三行：reflection mode选择
+        ui.horizontal(|ui| {
+            ui.label("Reflection mode:");
+            ui.radio_value(&mut self.reflection_mode, ReflectionMode::Average, "Average");
+            ui.radio_value(&mut self.reflection_mode, ReflectionMode::Partial, "Partial");
+        });
 
         ui.add_space(20.0);
 
@@ -213,12 +232,11 @@ impl ColorReflectionWindow {
         if let Some(amount) = self.slider_amount {
             self.slider_values.clear();
             for i in 0..amount {
-                // 初始值平均分布，范围0-255
-                let value = if amount == 1 {
-                    127.0 // 只有一个滑块时放在中间
-                } else {
-                    (i as f32 / (amount - 1) as f32) * 255.0
-                };
+                // 将滑动条分成(amount + 2)份，取中间的端点
+                // 例如：3个滑块 -> 分成5份 -> 取第2,3,4个端点
+                let total_segments = amount + 2;
+                let segment_size = 255.0 / total_segments as f32;
+                let value = segment_size * (i + 1) as f32;
                 self.slider_values.push(value);
             }
         }
@@ -258,8 +276,15 @@ impl ColorReflectionWindow {
                 return;
             }
 
-            // 应用颜色反射处理
-            let processed_img = ImageProcessor::apply_color_reflection(original_img, &self.slider_values);
+            // 根据选择的模式应用颜色反射处理
+            let processed_img = match self.reflection_mode {
+                ReflectionMode::Average => {
+                    ImageProcessor::apply_color_reflection(original_img, &self.slider_values)
+                }
+                ReflectionMode::Partial => {
+                    ImageProcessor::apply_color_reflection_partial(original_img, &self.slider_values)
+                }
+            };
 
             // 更新显示
             *current_texture = Some(ImageProcessor::update_texture_from_image(&processed_img, ctx));

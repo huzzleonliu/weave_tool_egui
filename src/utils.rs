@@ -104,6 +104,104 @@ impl ImageProcessor {
         DynamicImage::ImageRgba8(image::RgbaImage::from_raw(width, height, pixels).unwrap())
     }
 
+    /// 应用颜色反射处理 - Partial模式
+    pub fn apply_color_reflection_partial(
+        original_img: &DynamicImage,
+        slider_values: &[f32],
+    ) -> DynamicImage {
+        // 创建排序后的滑块值
+        let mut sorted_values = slider_values.to_vec();
+        sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        // 使用自定义灰度转换函数
+        let gray_img = Self::convert_to_grayscale_custom(original_img);
+        let rgba_image = gray_img.to_rgba8();
+        let (width, height) = rgba_image.dimensions();
+        let mut pixels = rgba_image.into_raw();
+
+        // 计算分段颜色 - 将255灰度平均分成(滑块数+2)段
+        let total_segments = sorted_values.len() + 2;
+        let segment_size = 255.0 / total_segments as f32;
+        let mut segment_colors = Vec::new();
+        
+        // 第一段：纯黑色
+        segment_colors.push(0.0);
+        
+        // 中间段：每段的平均值
+        for i in 1..=sorted_values.len() {
+            let segment_start = i as f32 * segment_size;
+            let segment_end = (i + 1) as f32 * segment_size;
+            let segment_avg = (segment_start + segment_end) / 2.0;
+            segment_colors.push(segment_avg);
+        }
+        
+        // 最后一段：纯白色
+        segment_colors.push(255.0);
+
+        // 处理每个像素
+        for chunk in pixels.chunks_exact_mut(4) {
+            let r = chunk[0] as f32;
+            let g = chunk[1] as f32;
+            let b = chunk[2] as f32;
+            let a = chunk[3];
+
+            // 计算灰度值 (使用ITU-R BT.601标准)
+            let gray_value = (0.299 * r + 0.587 * g + 0.114 * b) as u8;
+
+            // 找到灰度值对应的区段
+            let segment_value = Self::get_segment_value_partial(gray_value, &sorted_values, &segment_colors);
+
+            // 设置新的RGB值
+            if a == 0 {
+                chunk[0] = 0;
+                chunk[1] = 0;
+                chunk[2] = 0;
+                chunk[3] = 0;
+            } else {
+                chunk[0] = segment_value;
+                chunk[1] = segment_value;
+                chunk[2] = segment_value;
+                chunk[3] = 255;
+            }
+        }
+
+        DynamicImage::ImageRgba8(image::RgbaImage::from_raw(width, height, pixels).unwrap())
+    }
+
+    /// 获取区段值 - Partial模式
+    fn get_segment_value_partial(gray_value: u8, sorted_values: &[f32], segment_colors: &[f32]) -> u8 {
+        let gray_f32 = gray_value as f32;
+
+        // 如果只有一个滑块，分成两个区段：小于滑块值用黑色，大于等于滑块值用白色
+        if sorted_values.len() == 1 {
+            if gray_f32 < sorted_values[0] {
+                return segment_colors[0] as u8; // 黑色
+            } else {
+                return segment_colors[2] as u8; // 白色
+            }
+        }
+
+        // 找到灰度值所在的区段
+        for i in 0..sorted_values.len() - 1 {
+            let segment_start = sorted_values[i];
+            let segment_end = sorted_values[i + 1];
+
+            if gray_f32 >= segment_start && gray_f32 <= segment_end {
+                // 返回对应的分段颜色
+                return segment_colors[i + 1] as u8;
+            }
+        }
+
+        // 处理边界情况
+        if gray_f32 <= sorted_values[0] {
+            // 小于第一个滑块的值，使用第一段颜色（纯黑色）
+            return segment_colors[0] as u8;
+        } else {
+            // 大于最后一个滑块的值，使用最后一段颜色（纯白色）
+            return segment_colors[segment_colors.len() - 1] as u8;
+        }
+    }
+
     /// 清理图像 - 移除孤立的像素
     pub fn clean_image(img: &DynamicImage) -> DynamicImage {
         let rgba_image = img.to_rgba8();
@@ -185,9 +283,15 @@ impl ImageProcessor {
     fn get_segment_value(gray_value: u8, sorted_values: &[f32]) -> u8 {
         let gray_f32 = gray_value as f32;
 
-        // 如果只有一个滑块，直接返回该值
+        // 如果只有一个滑块，分成两个区段：小于滑块值用第一段平均值，大于等于滑块值用第二段平均值
         if sorted_values.len() == 1 {
-            return sorted_values[0] as u8;
+            if gray_f32 < sorted_values[0] {
+                // 第一段：0到滑块值的平均值
+                return ((0.0 + sorted_values[0]) / 2.0) as u8;
+            } else {
+                // 第二段：滑块值到255的平均值
+                return ((sorted_values[0] + 255.0) / 2.0) as u8;
+            }
         }
 
         // 找到灰度值所在的区段
