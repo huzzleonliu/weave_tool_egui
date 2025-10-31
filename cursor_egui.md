@@ -1,5 +1,5 @@
 # 阅读项目和聊天记录
-_Exported on 26/10/2025 at 16:10:46 CET from Cursor (1.7.54)_
+_Exported on 31/10/2025 at 14:03:33 CET from Cursor (2.0.43)_
 
 ---
 
@@ -40740,4 +40740,1804 @@ if sorted_values.len() == 1 {
     }
 }
 ```
+
+---
+
+**User**
+
+rust的std中取abc三个值中的最大值的函数吗？
+
+---
+
+**Cursor**
+
+不支持直接的“三参数 max”，可用以下方式简洁实现：
+
+- 链式比较（适用于实现了 Ord 的类型）
+```rust
+let m = a.max(b).max(c);
+// 或
+use std::cmp::max;
+let m = max(max(a, b), c);
+```
+
+- 迭代器（通用、可扩展）
+```rust
+let m = [a, b, c].into_iter().max().unwrap();
+```
+
+- 浮点数
+  - 简单用：`f32::max` / `f64::max`
+  ```rust
+  let m = a.max(b).max(c); // a,b,c 为 f32/f64
+  ```
+  - 严格排序可用 `total_cmp`：
+  ```rust
+  let m = [a, b, c].into_iter().max_by(|x, y| x.total_cmp(y)).unwrap();
+  ```
+
+```rust
+let m = a.max(b).max(c);
+// 或
+use std::cmp::max;
+let m = max(max(a, b), c);
+```
+
+```rust
+let m = [a, b, c].into_iter().max().unwrap();
+```
+
+```rust
+  let m = a.max(b).max(c); // a,b,c 为 f32/f64
+  ```
+  - 严格排序可用 `total_cmp`：
+  ```rust
+  let m = [a, b, c].into_iter().max_by(|x, y| x.total_cmp(y)).unwrap();
+  ```
+```
+
+```rust
+  let m = [a, b, c].into_iter().max_by(|x, y| x.total_cmp(y)).unwrap();
+```
+
+---
+
+**User**
+
+再次阅读项目，留意我修改的地方，现在我需要改变Black & White的程序逻辑，在工具栏里的Black & White Mode边上把按键改成一个下拉选框，里面有3个选项
+
+default => 对应convert_to_grayscale_custom函数
+
+max => 对应convert_to_grayscale_max函数
+
+min => 对应convert_to_grayscale_min函数
+
+当使用confirm reflection时，也根据这个选单的选项来进行黑白色的预处理
+
+---
+
+**Cursor**
+
+我先在 utils.rs 定义公共枚举，然后添加映射函数；接着在 main_window.rs 增加下拉选单和字段，并修改 toggle_grayscale；最后把 grayscale_mode 传入 color_reflection_window 并使用对应预处理。现在开始修改文件并编译验证。
+
+```rust
+use image::DynamicImage;
+use std::path::PathBuf;
+
+/// 图像处理工具函数
+pub struct ImageProcessor;
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum GrayscaleMode {
+    Default,
+    Max,
+    Min,
+}
+
+impl ImageProcessor {
+    /// 更新纹理从图像
+    pub fn update_texture_from_image(
+        img: &DynamicImage,
+        ctx: &egui::Context,
+    ) -> egui::TextureHandle {
+        let rgba_image = img.to_rgba8();
+        let size = [rgba_image.width() as usize, rgba_image.height() as usize];
+        let pixels = rgba_image.into_raw();
+
+        let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &pixels);
+        let texture_options = egui::TextureOptions {
+            magnification: egui::TextureFilter::Nearest,
+            minification: egui::TextureFilter::Nearest,
+            ..Default::default()
+        };
+        ctx.load_texture("processed_image", color_image, texture_options)
+    }
+
+    /// 保存图像到临时文件
+    pub fn save_to_temp(
+        img: &DynamicImage,
+        temp_path: &PathBuf,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        img.save(temp_path)?;
+        Ok(())
+    }
+
+    /// 自定义灰度转换 (ITU-R BT.601标准)
+    pub fn convert_to_grayscale_custom(img: &DynamicImage) -> DynamicImage {
+        let rgba_image = img.to_rgba8();
+        let (width, height) = rgba_image.dimensions();
+        let mut pixels = rgba_image.into_raw();
+
+        for chunk in pixels.chunks_exact_mut(4) {
+            let r = chunk[0] as u32;
+            let g = chunk[1] as u32;
+            let b = chunk[2] as u32;
+            let a = chunk[3];
+
+            let luma = ((299 * r + 587 * g + 114 * b) / 1000) as u8;
+
+            if a == 0 {
+                chunk[0] = 0;
+                chunk[1] = 0;
+                chunk[2] = 0;
+                chunk[3] = 0;
+            } else {
+                chunk[0] = luma;
+                chunk[1] = luma;
+                chunk[2] = luma;
+                chunk[3] = 255;
+            }
+        }
+
+        DynamicImage::ImageRgba8(image::RgbaImage::from_raw(width, height, pixels).unwrap())
+    }
+
+    pub fn convert_to_grayscale_max(img: &DynamicImage) -> DynamicImage {
+        let rgba_image = img.to_rgba8();
+        let (width, height) = rgba_image.dimensions();
+        let mut pixels = rgba_image.into_raw();
+
+        for chunk in pixels.chunks_exact_mut(4) {
+            let r = chunk[0] as u32;
+            let g = chunk[1] as u32;
+            let b = chunk[2] as u32;
+            let a = chunk[3];
+
+            let luma = (r.max(g).max(b)) as u8;
+
+            if a == 0 {
+                chunk[0] = 0;
+                chunk[1] = 0;
+                chunk[2] = 0;
+                chunk[3] = 0;
+            } else {
+                chunk[0] = luma;
+                chunk[1] = luma;
+                chunk[2] = luma;
+                chunk[3] = 255;
+            }
+        }
+
+        DynamicImage::ImageRgba8(image::RgbaImage::from_raw(width, height, pixels).unwrap())
+    }
+
+    pub fn convert_to_grayscale_min(img: &DynamicImage) -> DynamicImage {
+        let rgba_image = img.to_rgba8();
+        let (width, height) = rgba_image.dimensions();
+        let mut pixels = rgba_image.into_raw();
+
+        for chunk in pixels.chunks_exact_mut(4) {
+            let r = chunk[0] as u32;
+            let g = chunk[1] as u32;
+            let b = chunk[2] as u32;
+            let a = chunk[3];
+
+            let luma = (r.min(g).min(b)) as u8;
+
+            if a == 0 {
+                chunk[0] = 0;
+                chunk[1] = 0;
+                chunk[2] = 0;
+                chunk[3] = 0;
+            } else {
+                chunk[0] = luma;
+                chunk[1] = luma;
+                chunk[2] = luma;
+                chunk[3] = 255;
+            }
+        }
+
+        DynamicImage::ImageRgba8(image::RgbaImage::from_raw(width, height, pixels).unwrap())
+    }
+
+    /// 应用颜色反射处理
+    pub fn apply_color_reflection(
+        original_img: &DynamicImage,
+        slider_values: &[f32],
+    ) -> DynamicImage {
+        // 创建排序后的滑块值
+        let mut sorted_values = slider_values.to_vec();
+        sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        // 使用自定义灰度转换函数
+        let gray_img = Self::convert_to_grayscale_custom(original_img);
+        let rgba_image = gray_img.to_rgba8();
+        let (width, height) = rgba_image.dimensions();
+        let mut pixels = rgba_image.into_raw();
+
+        // 处理每个像素
+        for chunk in pixels.chunks_exact_mut(4) {
+            let r = chunk[0] as f32;
+            let g = chunk[1] as f32;
+            let b = chunk[2] as f32;
+            let a = chunk[3];
+
+            // 计算灰度值 (使用ITU-R BT.601标准)
+            let gray_value = (0.299 * r + 0.587 * g + 0.114 * b) as u8;
+
+            // 找到灰度值对应的区段
+            let segment_value = Self::get_segment_value(gray_value, &sorted_values);
+
+            // 设置新的RGB值
+            if a == 0 {
+                chunk[0] = 0;
+                chunk[1] = 0;
+                chunk[2] = 0;
+                chunk[3] = 0;
+            } else {
+                chunk[0] = segment_value;
+                chunk[1] = segment_value;
+                chunk[2] = segment_value;
+                chunk[3] = 255;
+            }
+        }
+
+        DynamicImage::ImageRgba8(image::RgbaImage::from_raw(width, height, pixels).unwrap())
+    }
+
+    /// 应用颜色反射处理 - Partial模式
+    pub fn apply_color_reflection_partial(
+        original_img: &DynamicImage,
+        slider_values: &[f32],
+    ) -> DynamicImage {
+        // 创建排序后的滑块值
+        let mut sorted_values = slider_values.to_vec();
+        sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        // 使用自定义灰度转换函数
+        let gray_img = Self::convert_to_grayscale_custom(original_img);
+        let rgba_image = gray_img.to_rgba8();
+        let (width, height) = rgba_image.dimensions();
+        let mut pixels = rgba_image.into_raw();
+
+        // 计算分段颜色 - 将255灰度平均分成(滑块数+2)段
+        let total_segments = sorted_values.len() + 2;
+        let segment_size = 255.0 / total_segments as f32;
+        let mut segment_colors = Vec::new();
+
+        // 第一段：纯黑色
+        segment_colors.push(0.0);
+
+        // 中间段：每段的平均值
+        for i in 1..=sorted_values.len() {
+            let segment_start = i as f32 * segment_size;
+            let segment_end = (i + 1) as f32 * segment_size;
+            let segment_avg = (segment_start + segment_end) / 2.0;
+            segment_colors.push(segment_avg);
+        }
+
+        // 最后一段：纯白色
+        segment_colors.push(255.0);
+
+        // 处理每个像素
+        for chunk in pixels.chunks_exact_mut(4) {
+            let r = chunk[0] as f32;
+            let g = chunk[1] as f32;
+            let b = chunk[2] as f32;
+            let a = chunk[3];
+
+            // 计算灰度值 (使用ITU-R BT.601标准)
+            let gray_value = (0.299 * r + 0.587 * g + 0.114 * b) as u8;
+
+            // 找到灰度值对应的区段
+            let segment_value =
+                Self::get_segment_value_partial(gray_value, &sorted_values, &segment_colors);
+
+            // 设置新的RGB值
+            if a == 0 {
+                chunk[0] = 0;
+                chunk[1] = 0;
+                chunk[2] = 0;
+                chunk[3] = 0;
+            } else {
+                chunk[0] = segment_value;
+                chunk[1] = segment_value;
+                chunk[2] = segment_value;
+                chunk[3] = 255;
+            }
+        }
+
+        DynamicImage::ImageRgba8(image::RgbaImage::from_raw(width, height, pixels).unwrap())
+    }
+
+    /// 应用颜色反射处理（根据灰度模式预处理）
+    pub fn apply_color_reflection_with_mode(
+        original_img: &DynamicImage,
+        slider_values: &[f32],
+        mode: GrayscaleMode,
+    ) -> DynamicImage {
+        let gray_img = match mode {
+            GrayscaleMode::Default => Self::convert_to_grayscale_custom(original_img),
+            GrayscaleMode::Max => Self::convert_to_grayscale_max(original_img),
+            GrayscaleMode::Min => Self::convert_to_grayscale_min(original_img),
+        };
+
+        // 复用 average 映射逻辑，但跳过内部灰度转换
+        let mut sorted_values = slider_values.to_vec();
+        sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        let rgba_image = gray_img.to_rgba8();
+        let (width, height) = rgba_image.dimensions();
+        let mut pixels = rgba_image.into_raw();
+
+        for chunk in pixels.chunks_exact_mut(4) {
+            let r = chunk[0] as f32;
+            let g = chunk[1] as f32;
+            let b = chunk[2] as f32;
+            let a = chunk[3];
+
+            let gray_value = (0.299 * r + 0.587 * g + 0.114 * b) as u8;
+            let segment_value = Self::get_segment_value(gray_value, &sorted_values);
+
+            if a == 0 {
+                chunk[0] = 0;
+                chunk[1] = 0;
+                chunk[2] = 0;
+                chunk[3] = 0;
+            } else {
+                chunk[0] = segment_value;
+                chunk[1] = segment_value;
+                chunk[2] = segment_value;
+                chunk[3] = 255;
+            }
+        }
+
+        DynamicImage::ImageRgba8(image::RgbaImage::from_raw(width, height, pixels).unwrap())
+    }
+
+    /// 应用颜色反射处理 Partial（根据灰度模式预处理）
+    pub fn apply_color_reflection_partial_with_mode(
+        original_img: &DynamicImage,
+        slider_values: &[f32],
+        mode: GrayscaleMode,
+    ) -> DynamicImage {
+        let gray_img = match mode {
+            GrayscaleMode::Default => Self::convert_to_grayscale_custom(original_img),
+            GrayscaleMode::Max => Self::convert_to_grayscale_max(original_img),
+            GrayscaleMode::Min => Self::convert_to_grayscale_min(original_img),
+        };
+
+        let mut sorted_values = slider_values.to_vec();
+        sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        let rgba_image = gray_img.to_rgba8();
+        let (width, height) = rgba_image.dimensions();
+        let mut pixels = rgba_image.into_raw();
+
+        let total_segments = sorted_values.len() + 2;
+        let segment_size = 255.0 / total_segments as f32;
+        let mut segment_colors = Vec::new();
+        segment_colors.push(0.0);
+        for i in 1..=sorted_values.len() {
+            let segment_start = i as f32 * segment_size;
+            let segment_end = (i + 1) as f32 * segment_size;
+            let segment_avg = (segment_start + segment_end) / 2.0;
+            segment_colors.push(segment_avg);
+        }
+        segment_colors.push(255.0);
+
+        for chunk in pixels.chunks_exact_mut(4) {
+            let r = chunk[0] as f32;
+            let g = chunk[1] as f32;
+            let b = chunk[2] as f32;
+            let a = chunk[3];
+
+            let gray_value = (0.299 * r + 0.587 * g + 0.114 * b) as u8;
+            let segment_value =
+                Self::get_segment_value_partial(gray_value, &sorted_values, &segment_colors);
+
+            if a == 0 {
+                chunk[0] = 0;
+                chunk[1] = 0;
+                chunk[2] = 0;
+                chunk[3] = 0;
+            } else {
+                chunk[0] = segment_value;
+                chunk[1] = segment_value;
+                chunk[2] = segment_value;
+                chunk[3] = 255;
+            }
+        }
+
+        DynamicImage::ImageRgba8(image::RgbaImage::from_raw(width, height, pixels).unwrap())
+    }
+
+    /// 获取区段值 - Partial模式
+    fn get_segment_value_partial(
+        gray_value: u8,
+        sorted_values: &[f32],
+        segment_colors: &[f32],
+    ) -> u8 {
+        let gray_f32 = gray_value as f32;
+
+        // 如果只有一个滑块，分成两个区段：小于滑块值用黑色，大于等于滑块值用白色
+        if sorted_values.len() == 1 {
+            if gray_f32 < sorted_values[0] {
+                return segment_colors[0] as u8; // 黑色
+            } else {
+                return segment_colors[2] as u8; // 白色
+            }
+        }
+
+        // 找到灰度值所在的区段
+        for i in 0..sorted_values.len() - 1 {
+            let segment_start = sorted_values[i];
+            let segment_end = sorted_values[i + 1];
+
+            if gray_f32 >= segment_start && gray_f32 <= segment_end {
+                // 返回对应的分段颜色
+                return segment_colors[i + 1] as u8;
+            }
+        }
+
+        // 处理边界情况
+        if gray_f32 <= sorted_values[0] {
+            // 小于第一个滑块的值，使用第一段颜色（纯黑色）
+            return segment_colors[0] as u8;
+        } else {
+            // 大于最后一个滑块的值，使用最后一段颜色（纯白色）
+            return segment_colors[segment_colors.len() - 1] as u8;
+        }
+    }
+
+    /// 清理图像 - 移除孤立的像素
+    pub fn clean_image(img: &DynamicImage) -> DynamicImage {
+        let rgba_image = img.to_rgba8();
+        let (width, height) = rgba_image.dimensions();
+        let pixels = rgba_image.into_raw();
+
+        // 创建结果像素数组
+        let mut result_pixels = pixels.clone();
+
+        // 遍历每个像素
+        for y in 0..height {
+            for x in 0..width {
+                let idx = (y * width + x) as usize * 4;
+                let a = pixels[idx + 3];
+
+                // 只处理非透明像素
+                if a != 0 {
+                    let current_color = (pixels[idx], pixels[idx + 1], pixels[idx + 2]);
+
+                    // 获取周围8个像素的颜色
+                    let mut neighbor_colors = Vec::new();
+
+                    for dy in -1..=1 {
+                        for dx in -1..=1 {
+                            if dx == 0 && dy == 0 {
+                                continue; // 跳过中心像素
+                            }
+
+                            let nx = x as i32 + dx;
+                            let ny = y as i32 + dy;
+
+                            // 检查边界
+                            if nx >= 0 && nx < width as i32 && ny >= 0 && ny < height as i32 {
+                                let nidx = (ny * width as i32 + nx) as usize * 4;
+                                let na = pixels[nidx + 3];
+
+                                // 只考虑非透明像素
+                                if na != 0 {
+                                    let neighbor_color =
+                                        (pixels[nidx], pixels[nidx + 1], pixels[nidx + 2]);
+                                    neighbor_colors.push(neighbor_color);
+                                }
+                            }
+                        }
+                    }
+
+                    // 如果当前像素颜色与所有邻居都不同，则替换它
+                    if !neighbor_colors.is_empty() && !neighbor_colors.contains(&current_color) {
+                        // 找到最常见的颜色
+                        let mut color_counts = std::collections::HashMap::new();
+                        for &color in &neighbor_colors {
+                            *color_counts.entry(color).or_insert(0) += 1;
+                        }
+
+                        // 找到出现次数最多的颜色
+                        let mut max_count = 0;
+                        let mut most_common_color = neighbor_colors[0];
+
+                        for (&color, &count) in &color_counts {
+                            if count > max_count
+                                || (count == max_count && color.0 > most_common_color.0)
+                            {
+                                max_count = count;
+                                most_common_color = color;
+                            }
+                        }
+
+                        // 替换当前像素颜色
+                        result_pixels[idx] = most_common_color.0;
+                        result_pixels[idx + 1] = most_common_color.1;
+                        result_pixels[idx + 2] = most_common_color.2;
+                        // alpha保持不变
+                    }
+                }
+            }
+        }
+
+        DynamicImage::ImageRgba8(image::RgbaImage::from_raw(width, height, result_pixels).unwrap())
+    }
+
+    /// 获取区段值
+    fn get_segment_value(gray_value: u8, sorted_values: &[f32]) -> u8 {
+        let gray_f32 = gray_value as f32;
+
+        // 如果只有一个滑块，分成两个区段：小于滑块值用第一段平均值，大于等于滑块值用第二段平均值
+        if sorted_values.len() == 1 {
+            if gray_f32 < sorted_values[0] {
+                // 第一段：0到滑块值的平均值
+                return ((0.0 + sorted_values[0]) / 2.0) as u8;
+            } else {
+                // 第二段：滑块值到255的平均值
+                return ((sorted_values[0] + 255.0) / 2.0) as u8;
+            }
+        }
+
+        // 找到灰度值所在的区段
+        for i in 0..sorted_values.len() - 1 {
+            let segment_start = sorted_values[i];
+            let segment_end = sorted_values[i + 1];
+
+            if gray_f32 >= segment_start && gray_f32 <= segment_end {
+                // 计算区段的平均值
+                let segment_avg = (segment_start + segment_end) / 2.0;
+                return segment_avg as u8;
+            }
+        }
+
+        // 处理边界情况
+        if gray_f32 <= sorted_values[0] {
+            // 小于第一个滑块的值，使用第一个区段的平均值
+            if sorted_values.len() > 1 {
+                let segment_avg = (0.0 + sorted_values[1]) / 2.0;
+                return segment_avg as u8;
+            } else {
+                return sorted_values[0] as u8;
+            }
+        } else {
+            // 大于最后一个滑块的值，使用最后一个区段的平均值
+            let last_idx = sorted_values.len() - 1;
+            if last_idx > 0 {
+                let segment_avg = (sorted_values[last_idx - 1] + 255.0) / 2.0;
+                return segment_avg as u8;
+            } else {
+                return sorted_values[last_idx] as u8;
+            }
+        }
+    }
+}
+
+/// UI工具函数
+pub struct UiUtils;
+
+impl UiUtils {
+    /// 绘制棋盘格背景
+    pub fn draw_checkerboard_background(ui: &mut egui::Ui) {
+        let rect = ui.available_rect_before_wrap();
+        let painter = ui.painter();
+
+        let checker_size = 20.0;
+        let cols = (rect.width() / checker_size).ceil() as i32;
+        let rows = (rect.height() / checker_size).ceil() as i32;
+
+        for row in 0..rows {
+            for col in 0..cols {
+                let x = rect.min.x + col as f32 * checker_size;
+                let y = rect.min.y + row as f32 * checker_size;
+
+                let checker_rect = egui::Rect::from_min_size(
+                    egui::Pos2::new(x, y),
+                    egui::Vec2::new(checker_size, checker_size),
+                );
+
+                let is_light = (row + col) % 2 == 0;
+                let color = if is_light {
+                    egui::Color32::from_gray(200)
+                } else {
+                    egui::Color32::from_gray(150)
+                };
+
+                painter.rect_filled(checker_rect, 0.0, color);
+            }
+        }
+    }
+}
+
+```
+
+```rust
+use crate::color_reflection_window::ColorReflectionWindow;
+use crate::utils::{GrayscaleMode, ImageProcessor, UiUtils};
+use egui;
+use image::DynamicImage;
+use std::fs;
+use std::path::PathBuf;
+
+/// 主窗口的状态
+pub struct MainWindow {
+    pub current_texture: Option<egui::TextureHandle>,
+    pub current_path: Option<PathBuf>,
+    pub zoom_factor: f32,
+    pub pan_offset: egui::Vec2,
+    pub original_image: Option<DynamicImage>,
+    pub is_grayscale: bool,
+    pub temp_path: Option<PathBuf>,
+    pub color_reflection_window: ColorReflectionWindow,
+    pub grayscale_mode: GrayscaleMode,
+}
+
+impl Default for MainWindow {
+    fn default() -> Self {
+        Self {
+            current_texture: None,
+            current_path: None,
+            zoom_factor: 1.0,
+            pan_offset: egui::Vec2::ZERO,
+            original_image: None,
+            is_grayscale: false,
+            temp_path: None,
+            color_reflection_window: ColorReflectionWindow::default(),
+            grayscale_mode: GrayscaleMode::Default,
+        }
+    }
+}
+
+impl eframe::App for MainWindow {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        self.show(ctx, frame);
+    }
+}
+
+impl MainWindow {
+    /// 显示主窗口
+    pub fn show(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        self.show_menu_bar(ctx, frame);
+        self.show_toolbar(ctx);
+        self.show_color_reflection_window(ctx);
+        self.show_main_display(ctx);
+    }
+
+    /// 显示菜单栏
+    fn show_menu_bar(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
+                ui.menu_button("File", |ui| {
+                    if ui.button("Open Image").clicked() {
+                        self.open_image_dialog(ctx);
+                        ui.close();
+                    }
+                    if ui.button("Exit").clicked() {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        ui.close();
+                    }
+                });
+            });
+        });
+    }
+
+    /// 显示工具栏
+    fn show_toolbar(&mut self, ctx: &egui::Context) {
+        egui::TopBottomPanel::bottom("toolbar").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                // 左侧按钮组
+                ui.horizontal(|ui| {
+                    if ui.button("Original").clicked() {
+                        self.original(ctx);
+                    }
+                    ui.label("Black & White Mode:");
+                    egui::ComboBox::from_id_source("bw_mode")
+                        .selected_text(match self.grayscale_mode {
+                            GrayscaleMode::Default => "default",
+                            GrayscaleMode::Max => "max",
+                            GrayscaleMode::Min => "min",
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.grayscale_mode, GrayscaleMode::Default, "default");
+                            ui.selectable_value(&mut self.grayscale_mode, GrayscaleMode::Max, "max");
+                            ui.selectable_value(&mut self.grayscale_mode, GrayscaleMode::Min, "min");
+                        });
+                    if ui.button("Black & White").clicked() {
+                        self.toggle_grayscale(ctx);
+                    }
+                    if ui.button("Fast Save").clicked() {
+                        self.fast_save();
+                    }
+                    if ui.button("Color Reflection").clicked() {
+                        self.color_reflection_window.show_window = true;
+                    }
+                    if ui.button("Clean").clicked() {
+                        self.clean_image(ctx);
+                    }
+                });
+
+                // 中间缩放信息
+                ui.allocate_ui_with_layout(
+                    egui::Vec2::new(ui.available_width(), ui.available_height()),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        ui.centered_and_justified(|ui| {
+                            ui.label(format!("Zoom: {:.1}%", self.zoom_factor * 100.0));
+                        });
+                    },
+                );
+
+                // 右侧空白区域（保持布局平衡）
+                ui.horizontal(|ui| {
+                    ui.add_space(ui.available_width());
+                });
+            });
+        });
+    }
+
+    /// 显示Color Reflection窗口
+    fn show_color_reflection_window(&mut self, ctx: &egui::Context) {
+        self.color_reflection_window.show(
+            ctx,
+            &self.original_image,
+            &mut self.current_texture,
+            &self.temp_path,
+            &self.grayscale_mode,
+        );
+    }
+
+    /// 显示主显示区域
+    fn show_main_display(&mut self, ctx: &egui::Context) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            UiUtils::draw_checkerboard_background(ui);
+
+            // 处理缩放
+            if ui.input(|i| i.raw_scroll_delta.y != 0.0) {
+                let zoom_delta = ui.input(|i| i.raw_scroll_delta.y) * 0.01;
+                let old_zoom = self.zoom_factor;
+                self.zoom_factor = (self.zoom_factor + zoom_delta).max(0.1).min(5.0);
+
+                // 保持鼠标位置不变
+                if let Some(mouse_pos) = ui.input(|i| i.pointer.hover_pos()) {
+                    let zoom_ratio = self.zoom_factor / old_zoom;
+                    // 计算鼠标相对于图像中心的位置
+                    let image_center = egui::Pos2::new(
+                        ui.available_size().x / 2.0 + self.pan_offset.x,
+                        ui.available_size().y / 2.0 + self.pan_offset.y,
+                    );
+                    let mouse_offset = mouse_pos - image_center;
+                    let new_offset = mouse_pos - mouse_offset * zoom_ratio;
+                    self.pan_offset = egui::Vec2::new(
+                        new_offset.x - ui.available_size().x / 2.0,
+                        new_offset.y - ui.available_size().y / 2.0,
+                    );
+                }
+            }
+
+            if let Some(texture) = &self.current_texture {
+                let texture_size = texture.size_vec2();
+                let scaled_size = texture_size * self.zoom_factor;
+
+                let available_size = ui.available_size();
+                let image_pos = egui::Pos2::new(
+                    (available_size.x - scaled_size.x) / 2.0 + self.pan_offset.x,
+                    (available_size.y - scaled_size.y) / 2.0 + self.pan_offset.y,
+                );
+
+                let image_rect = egui::Rect::from_min_size(image_pos, scaled_size);
+                let response = ui.allocate_rect(image_rect, egui::Sense::click_and_drag());
+
+                // 处理拖拽
+                if response.dragged() {
+                    self.pan_offset += ui.input(|i| i.pointer.delta());
+                }
+
+                let image = egui::Image::new(texture)
+                    .fit_to_exact_size(scaled_size)
+                    .texture_options(egui::TextureOptions {
+                        magnification: egui::TextureFilter::Nearest,
+                        minification: egui::TextureFilter::Nearest,
+                        ..Default::default()
+                    });
+                ui.put(image_rect, image);
+            } else {
+                ui.centered_and_justified(|ui| {
+                    ui.label("Please select an image file");
+                });
+            }
+        });
+    }
+
+    /// 打开图片对话框
+    fn open_image_dialog(&mut self, ctx: &egui::Context) {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("Image files", &["png", "jpg", "jpeg", "bmp", "gif", "tiff"])
+            .pick_file()
+        {
+            self.load_image(ctx, &path);
+        }
+    }
+
+    /// 加载图片
+    fn load_image(&mut self, ctx: &egui::Context, path: &std::path::Path) {
+        match image::open(path) {
+            Ok(img) => {
+                self.original_image = Some(img.clone());
+                self.is_grayscale = false;
+
+                let rgba_image = img.to_rgba8();
+                let size = [rgba_image.width() as usize, rgba_image.height() as usize];
+                let pixels = rgba_image.into_raw();
+
+                let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &pixels);
+                let texture_options = egui::TextureOptions {
+                    magnification: egui::TextureFilter::Nearest,
+                    minification: egui::TextureFilter::Nearest,
+                    ..Default::default()
+                };
+                self.current_texture =
+                    Some(ctx.load_texture("loaded_image", color_image, texture_options));
+                self.current_path = Some(path.to_path_buf());
+                self.zoom_factor = 1.0;
+                self.pan_offset = egui::Vec2::ZERO;
+
+                // 创建临时文件
+                if let Some(original_path) = &self.current_path {
+                    if let Some(stem) = original_path.file_stem().and_then(|s| s.to_str()) {
+                        let mut temp_path = original_path.clone();
+                        temp_path.set_file_name(format!("{}.egui_tmp.png", stem));
+                        let _ = img.save(&temp_path);
+                        self.temp_path = Some(temp_path);
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to load image: {}", e);
+            }
+        }
+    }
+
+    /// 切换灰度
+    fn toggle_grayscale(&mut self, ctx: &egui::Context) {
+        if let Some(original_img) = &self.original_image {
+            let processed_img = if self.is_grayscale {
+                original_img.clone()
+            } else {
+                match self.grayscale_mode {
+                    GrayscaleMode::Default =>
+                        ImageProcessor::convert_to_grayscale_custom(original_img),
+                    GrayscaleMode::Max =>
+                        ImageProcessor::convert_to_grayscale_max(original_img),
+                    GrayscaleMode::Min =>
+                        ImageProcessor::convert_to_grayscale_min(original_img),
+                }
+            };
+
+            self.is_grayscale = !self.is_grayscale;
+            self.current_texture = Some(ImageProcessor::update_texture_from_image(
+                &processed_img,
+                ctx,
+            ));
+            if let Some(temp_path) = &self.temp_path {
+                let _ = ImageProcessor::save_to_temp(&processed_img, temp_path);
+            }
+        }
+    }
+
+    /// 恢复原始图片
+    fn original(&mut self, ctx: &egui::Context) {
+        if let Some(original_img) = self.original_image.clone() {
+            self.is_grayscale = false;
+            self.current_texture = Some(ImageProcessor::update_texture_from_image(
+                &original_img,
+                ctx,
+            ));
+            if let Some(temp_path) = &self.temp_path {
+                let _ = ImageProcessor::save_to_temp(&original_img, temp_path);
+            }
+        }
+    }
+
+    /// 快速保存
+    fn fast_save(&self) {
+        if let (Some(current_path), Some(temp_path)) = (&self.current_path, &self.temp_path) {
+            match fs::copy(temp_path, current_path) {
+                Ok(_) => {
+                    println!("Image saved successfully to: {}", current_path.display());
+                }
+                Err(e) => {
+                    eprintln!("Failed to save image: {}", e);
+                }
+            }
+        } else {
+            eprintln!("No image loaded or temp file not available for saving");
+        }
+    }
+
+    /// 清理图像
+    fn clean_image(&mut self, ctx: &egui::Context) {
+        if let Some(_current_texture) = &self.current_texture {
+            // 从临时文件加载当前显示的图像
+            if let Some(temp_path) = &self.temp_path {
+                match image::open(temp_path) {
+                    Ok(current_img) => {
+                        let cleaned_img = ImageProcessor::clean_image(&current_img);
+                        self.current_texture =
+                            Some(ImageProcessor::update_texture_from_image(&cleaned_img, ctx));
+                        let _ = ImageProcessor::save_to_temp(&cleaned_img, temp_path);
+                        println!("Image cleaned successfully");
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to load current image from temp file: {}", e);
+                    }
+                }
+            } else {
+                eprintln!("No temp file available for cleaning");
+            }
+        } else {
+            eprintln!("No image loaded for cleaning");
+        }
+    }
+}
+
+impl Drop for MainWindow {
+    fn drop(&mut self) {
+        if let Some(temp) = self.temp_path.take() {
+            let _ = fs::remove_file(temp);
+        }
+    }
+}
+
+
+```
+
+```rust
+use egui;
+use image::DynamicImage;
+use std::path::PathBuf;
+use crate::utils::{GrayscaleMode, ImageProcessor};
+
+/// Color Reflection窗口的状态
+pub struct ColorReflectionWindow {
+    pub show_window: bool,
+    pub slider_amount_input: String,
+    pub slider_amount: Option<usize>,
+    pub slider_values: Vec<f32>,
+    pub reflection_mode: ReflectionMode,
+}
+
+#[derive(PartialEq)]
+pub enum ReflectionMode {
+    Average,
+    Partial,
+}
+
+impl Default for ColorReflectionWindow {
+    fn default() -> Self {
+        Self {
+            show_window: false,
+            slider_amount_input: String::new(),
+            slider_amount: None,
+            slider_values: Vec::new(),
+            reflection_mode: ReflectionMode::Average,
+        }
+    }
+}
+
+impl ColorReflectionWindow {
+    /// 显示Color Reflection窗口
+    pub fn show(&mut self, ctx: &egui::Context, original_image: &Option<DynamicImage>, current_texture: &mut Option<egui::TextureHandle>, temp_path: &Option<PathBuf>, grayscale_mode: &GrayscaleMode) {
+        if self.show_window {
+            let mut show_window = self.show_window;
+            egui::Window::new("Color Reflection")
+                .open(&mut show_window)
+                .default_size([800.0, 600.0])
+                .resizable(true)
+                .show(ctx, |ui| {
+                    self.show_content(ui, ctx, original_image, current_texture, temp_path, grayscale_mode);
+                });
+            self.show_window = show_window;
+        }
+    }
+
+    /// 显示窗口内容
+    fn show_content(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        original_image: &Option<DynamicImage>,
+        current_texture: &mut Option<egui::TextureHandle>,
+        temp_path: &Option<PathBuf>,
+        grayscale_mode: &GrayscaleMode,
+    ) {
+        ui.heading("Color Reflection");
+        ui.separator();
+
+        // 第一行：滑块数量输入框和确认按钮
+        ui.horizontal(|ui| {
+            ui.label("Slider amount");
+
+            // 输入框，限制输入为1-10的正整数
+            let mut input_text = self.slider_amount_input.clone();
+            let response = ui.add(
+                egui::TextEdit::singleline(&mut input_text)
+                    .hint_text("1-10")
+                    .desired_width(60.0)
+            );
+
+            // 只允许输入数字
+            if response.changed() {
+                self.slider_amount_input = input_text
+                    .chars()
+                    .filter(|c| c.is_ascii_digit())
+                    .collect::<String>();
+            }
+
+            // 确认按钮
+            if ui.button("Confirm Slider Amount").clicked() {
+                if let Ok(amount) = self.slider_amount_input.parse::<usize>() {
+                    if amount >= 1 && amount <= 10 {
+                        self.slider_amount = Some(amount);
+                        self.update_slider_values();
+                    }
+                }
+            }
+        });
+
+
+
+        ui.add_space(10.0);
+
+        // 第二行：单根滑动条上的多个滑块
+        ui.label("Slider positions:");
+
+        if let Some(amount) = self.slider_amount {
+            // 显示滑块数量
+            ui.label(format!("{} sliders on one track", amount));
+
+            // 创建单根滑动条区域
+            ui.allocate_ui_with_layout(
+                egui::Vec2::new(ui.available_width(), 60.0),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    self.draw_slider_track(ui);
+                }
+            );
+        } else {
+            ui.label("Please enter slider amount (1-10) and click confirm");
+        }
+
+        ui.add_space(10.0);
+
+        // 第三行：reflection mode选择
+        ui.horizontal(|ui| {
+            ui.label("Reflection mode:");
+            ui.radio_value(&mut self.reflection_mode, ReflectionMode::Average, "Average");
+            ui.radio_value(&mut self.reflection_mode, ReflectionMode::Partial, "Partial");
+        });
+
+        ui.add_space(20.0);
+
+        // Confirm Reflection 按钮
+        if ui.button("Confirm Reflection").clicked() {
+            self.apply_color_reflection(ctx, original_image, current_texture, temp_path, grayscale_mode);
+        }
+
+        ui.add_space(10.0);
+
+        if ui.button("Close Window").clicked() {
+            self.show_window = false;
+        }
+    }
+
+    /// 绘制滑动条轨道
+    fn draw_slider_track(&mut self, ui: &mut egui::Ui) {
+        // 绘制滑动条背景
+        let rect = ui.available_rect_before_wrap();
+        let painter = ui.painter();
+
+        // 绘制亮度渐变背景 (0-255)
+        let gradient_steps = rect.width() as usize;
+        for i in 0..gradient_steps {
+            let x = rect.min.x + i as f32;
+            let brightness = (i as f32 / gradient_steps as f32) * 255.0;
+            let gray_value = brightness as u8;
+            let color = egui::Color32::from_rgb(gray_value, gray_value, gray_value);
+
+            let step_rect = egui::Rect::from_min_size(
+                egui::Pos2::new(x, rect.min.y),
+                egui::Vec2::new(1.0, rect.height())
+            );
+            painter.rect_filled(step_rect, 0.0, color);
+        }
+
+        // 滑动条轨道边框
+        painter.rect_stroke(rect, 0.0, egui::Stroke::new(1.0, egui::Color32::from_gray(120)), egui::StrokeKind::Outside);
+
+        // 绘制滑块
+        for (i, &value) in self.slider_values.iter().enumerate() {
+            // 将0-255的值映射到滑动条位置
+            let normalized_value = value / 255.0;
+            let x = rect.min.x + normalized_value * rect.width();
+            let slider_rect = egui::Rect::from_center_size(
+                egui::Pos2::new(x, rect.center().y),
+                egui::Vec2::new(12.0, 24.0)
+            );
+
+            // 滑块颜色（可以根据需要调整）
+            let color = egui::Color32::from_rgb(100, 150, 255);
+            painter.rect_filled(slider_rect, 2.0, color);
+            painter.rect_stroke(slider_rect, 0.0, egui::Stroke::new(1.0, egui::Color32::WHITE), egui::StrokeKind::Outside);
+
+            // 滑块编号
+            painter.text(
+                egui::Pos2::new(x, rect.min.y - 5.0),
+                egui::Align2::CENTER_TOP,
+                format!("{}", i + 1),
+                egui::FontId::proportional(10.0),
+                egui::Color32::WHITE,
+            );
+
+            // 显示当前值 (0-255)
+            painter.text(
+                egui::Pos2::new(x, rect.max.y + 5.0),
+                egui::Align2::CENTER_TOP,
+                format!("{:.0}", value),
+                egui::FontId::proportional(9.0),
+                egui::Color32::WHITE,
+            );
+        }
+
+        // 处理鼠标交互
+        let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
+
+        if response.dragged() {
+            if let Some(mouse_pos) = ui.input(|i| i.pointer.hover_pos()) {
+                let relative_x = (mouse_pos.x - rect.min.x) / rect.width();
+                let relative_x = relative_x.clamp(0.0, 1.0);
+
+                // 将相对位置转换为0-255的值
+                let value = relative_x * 255.0;
+
+                // 找到最近的滑块并移动它
+                if let Some(closest_idx) = self.find_closest_slider(value) {
+                    self.slider_values[closest_idx] = value;
+                }
+            }
+        }
+
+        if response.clicked() {
+            if let Some(mouse_pos) = ui.input(|i| i.pointer.hover_pos()) {
+                let relative_x = (mouse_pos.x - rect.min.x) / rect.width();
+                let relative_x = relative_x.clamp(0.0, 1.0);
+
+                // 将相对位置转换为0-255的值
+                let value = relative_x * 255.0;
+
+                // 点击时也移动最近的滑块
+                if let Some(closest_idx) = self.find_closest_slider(value) {
+                    self.slider_values[closest_idx] = value;
+                }
+            }
+        }
+    }
+
+    /// 更新滑块值
+    fn update_slider_values(&mut self) {
+        if let Some(amount) = self.slider_amount {
+            self.slider_values.clear();
+            for i in 0..amount {
+                // 将滑动条分成(amount + 2)份，取中间的端点
+                // 例如：3个滑块 -> 分成5份 -> 取第2,3,4个端点
+                let total_segments = amount + 2;
+                let segment_size = 255.0 / total_segments as f32;
+                let value = segment_size * (i + 1) as f32;
+                self.slider_values.push(value);
+            }
+        }
+    }
+
+    /// 找到最近的滑块
+    fn find_closest_slider(&self, target_pos: f32) -> Option<usize> {
+        if self.slider_values.is_empty() {
+            return None;
+        }
+
+        let mut closest_idx = 0;
+        let mut min_distance = (self.slider_values[0] - target_pos).abs();
+
+        for (i, &value) in self.slider_values.iter().enumerate() {
+            let distance = (value - target_pos).abs();
+            if distance < min_distance {
+                min_distance = distance;
+                closest_idx = i;
+            }
+        }
+
+        Some(closest_idx)
+    }
+
+    /// 应用颜色反射处理
+    fn apply_color_reflection(
+        &self,
+        ctx: &egui::Context,
+        original_image: &Option<DynamicImage>,
+        current_texture: &mut Option<egui::TextureHandle>,
+        temp_path: &Option<PathBuf>,
+        grayscale_mode: &GrayscaleMode,
+    ) {
+        if let Some(original_img) = original_image {
+            if self.slider_values.is_empty() {
+                eprintln!("No sliders configured for color reflection");
+                return;
+            }
+
+            // 根据选择的模式应用颜色反射处理
+            let processed_img = match self.reflection_mode {
+                ReflectionMode::Average => {
+                    ImageProcessor::apply_color_reflection_with_mode(original_img, &self.slider_values, *grayscale_mode)
+                }
+                ReflectionMode::Partial => {
+                    ImageProcessor::apply_color_reflection_partial_with_mode(original_img, &self.slider_values, *grayscale_mode)
+                }
+            };
+
+            // 更新显示
+            *current_texture = Some(ImageProcessor::update_texture_from_image(&processed_img, ctx));
+
+            // 保存到临时文件
+            if let Some(temp_path) = temp_path {
+                if let Err(e) = ImageProcessor::save_to_temp(&processed_img, temp_path) {
+                    eprintln!("Failed to save to temp file: {}", e);
+                }
+            }
+
+            println!("Color reflection applied successfully");
+        } else {
+            eprintln!("No image loaded for color reflection");
+        }
+    }
+}
+
+```
+
+已完成如下变更：
+- 在工具栏添加 Black & White Mode 下拉选单（default/max/min），保存为全局状态。
+- 在 `utils.rs` 定义公共枚举 `GrayscaleMode`（Default/Max/Min）。
+- `toggle_grayscale` 根据选中的模式调用对应的灰度转换函数：
+  - default → `convert_to_grayscale_custom`
+  - max → `convert_to_grayscale_max`
+  - min → `convert_to_grayscale_min`
+- `Confirm Reflection` 时，也按当前模式先做灰度预处理，再做分段映射：
+  - Average → `apply_color_reflection_with_mode`
+  - Partial → `apply_color_reflection_partial_with_mode`
+
+你现在可以：
+- 在工具栏下拉选择 Black & White Mode
+- 使用 Black & White 按钮实时查看不同模式的灰度效果
+- 使用 Confirm Reflection 生成基于该模式预处理后的映射结果
+
+---
+
+**User**
+
+我刚刚自己做修改给改错了，帮我恢复到刚刚修改完的结果，修复我修改的错误
+
+---
+
+**Cursor**
+
+我先检查你刚才在 utils.rs 和 main_window.rs 的改动，以恢复到上一版的正确实现，然后编译验证。
+
+```rust
+use image::DynamicImage;
+use std::path::PathBuf;
+
+/// 图像处理工具函数
+pub struct ImageProcessor;
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum GrayscaleMode {
+    Default,
+    Max,
+    Min,
+}
+
+impl ImageProcessor {
+    /// 更新纹理从图像
+    pub fn update_texture_from_image(
+        img: &DynamicImage,
+        ctx: &egui::Context,
+    ) -> egui::TextureHandle {
+        let rgba_image = img.to_rgba8();
+        let size = [rgba_image.width() as usize, rgba_image.height() as usize];
+        let pixels = rgba_image.into_raw();
+
+        let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &pixels);
+        let texture_options = egui::TextureOptions {
+            magnification: egui::TextureFilter::Nearest,
+            minification: egui::TextureFilter::Nearest,
+            ..Default::default()
+        };
+        ctx.load_texture("processed_image", color_image, texture_options)
+    }
+
+    /// 保存图像到临时文件
+    pub fn save_to_temp(
+        img: &DynamicImage,
+        temp_path: &PathBuf,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        img.save(temp_path)?;
+        Ok(())
+    }
+
+    /// 自定义灰度转换 (ITU-R BT.601标准)
+    pub fn convert_to_grayscale_custom(img: &DynamicImage) -> DynamicImage {
+        let rgba_image = img.to_rgba8();
+        let (width, height) = rgba_image.dimensions();
+        let mut pixels = rgba_image.into_raw();
+
+        for chunk in pixels.chunks_exact_mut(4) {
+            let r = chunk[0] as u32;
+            let g = chunk[1] as u32;
+            let b = chunk[2] as u32;
+            let a = chunk[3];
+
+            let luma = ((299 * r + 587 * g + 114 * b) / 1000) as u8;
+
+            if a == 0 {
+                chunk[0] = 0;
+                chunk[1] = 0;
+                chunk[2] = 0;
+                chunk[3] = 0;
+            } else {
+                chunk[0] = luma;
+                chunk[1] = luma;
+                chunk[2] = luma;
+                chunk[3] = 255;
+            }
+        }
+
+        DynamicImage::ImageRgba8(image::RgbaImage::from_raw(width, height, pixels).unwrap())
+    }
+
+    pub fn convert_to_grayscale_max(img: &DynamicImage) -> DynamicImage {
+        let rgba_image = img.to_rgba8();
+        let (width, height) = rgba_image.dimensions();
+        let mut pixels = rgba_image.into_raw();
+
+        for chunk in pixels.chunks_exact_mut(4) {
+            let r = chunk[0] as u32;
+            let g = chunk[1] as u32;
+            let b = chunk[2] as u32;
+            let a = chunk[3];
+
+            let luma = (r.max(g).max(b)) as u8;
+
+            if a == 0 {
+                chunk[0] = 0;
+                chunk[1] = 0;
+                chunk[2] = 0;
+                chunk[3] = 0;
+            } else {
+                chunk[0] = luma;
+                chunk[1] = luma;
+                chunk[2] = luma;
+                chunk[3] = 255;
+            }
+        }
+
+        DynamicImage::ImageRgba8(image::RgbaImage::from_raw(width, height, pixels).unwrap())
+    }
+
+    pub fn convert_to_grayscale_min(img: &DynamicImage) -> DynamicImage {
+        let rgba_image = img.to_rgba8();
+        let (width, height) = rgba_image.dimensions();
+        let mut pixels = rgba_image.into_raw();
+
+        for chunk in pixels.chunks_exact_mut(4) {
+            let r = chunk[0] as u32;
+            let g = chunk[1] as u32;
+            let b = chunk[2] as u32;
+            let a = chunk[3];
+
+            let luma = (r.min(g).min(b)) as u8;
+
+            if a == 0 {
+                chunk[0] = 0;
+                chunk[1] = 0;
+                chunk[2] = 0;
+                chunk[3] = 0;
+            } else {
+                chunk[0] = luma;
+                chunk[1] = luma;
+                chunk[2] = luma;
+                chunk[3] = 255;
+            }
+        }
+
+        DynamicImage::ImageRgba8(image::RgbaImage::from_raw(width, height, pixels).unwrap())
+    }
+
+    /// 应用颜色反射处理
+    pub fn apply_color_reflection(
+        original_img: &DynamicImage,
+        slider_values: &[f32],
+    ) -> DynamicImage {
+        // 创建排序后的滑块值
+        let mut sorted_values = slider_values.to_vec();
+        sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        // 使用自定义灰度转换函数
+        let gray_img = Self::convert_to_grayscale_custom(original_img);
+        let rgba_image = gray_img.to_rgba8();
+        let (width, height) = rgba_image.dimensions();
+        let mut pixels = rgba_image.into_raw();
+
+        // 处理每个像素
+        for chunk in pixels.chunks_exact_mut(4) {
+            let r = chunk[0] as f32;
+            let g = chunk[1] as f32;
+            let b = chunk[2] as f32;
+            let a = chunk[3];
+
+            // 计算灰度值 (使用ITU-R BT.601标准)
+            let gray_value = (0.299 * r + 0.587 * g + 0.114 * b) as u8;
+
+            // 找到灰度值对应的区段
+            let segment_value = Self::get_segment_value(gray_value, &sorted_values);
+
+            // 设置新的RGB值
+            if a == 0 {
+                chunk[0] = 0;
+                chunk[1] = 0;
+                chunk[2] = 0;
+                chunk[3] = 0;
+            } else {
+                chunk[0] = segment_value;
+                chunk[1] = segment_value;
+                chunk[2] = segment_value;
+                chunk[3] = 255;
+            }
+        }
+
+        DynamicImage::ImageRgba8(image::RgbaImage::from_raw(width, height, pixels).unwrap())
+    }
+
+    /// 应用颜色反射处理（根据灰度模式预处理）
+    pub fn apply_color_reflection_with_mode(
+        original_img: &DynamicImage,
+        slider_values: &[f32],
+        mode: GrayscaleMode,
+    ) -> DynamicImage {
+        let gray_img = match mode {
+            GrayscaleMode::Default => Self::convert_to_grayscale_custom(original_img),
+            GrayscaleMode::Max => Self::convert_to_grayscale_max(original_img),
+            GrayscaleMode::Min => Self::convert_to_grayscale_min(original_img),
+        };
+
+        let mut sorted_values = slider_values.to_vec();
+        sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        let rgba_image = gray_img.to_rgba8();
+        let (width, height) = rgba_image.dimensions();
+        let mut pixels = rgba_image.into_raw();
+
+        for chunk in pixels.chunks_exact_mut(4) {
+            let r = chunk[0] as f32;
+            let g = chunk[1] as f32;
+            let b = chunk[2] as f32;
+            let a = chunk[3];
+
+            let gray_value = (0.299 * r + 0.587 * g + 0.114 * b) as u8;
+            let segment_value = Self::get_segment_value(gray_value, &sorted_values);
+
+            if a == 0 {
+                chunk[0] = 0;
+                chunk[1] = 0;
+                chunk[2] = 0;
+                chunk[3] = 0;
+            } else {
+                chunk[0] = segment_value;
+                chunk[1] = segment_value;
+                chunk[2] = segment_value;
+                chunk[3] = 255;
+            }
+        }
+
+        DynamicImage::ImageRgba8(image::RgbaImage::from_raw(width, height, pixels).unwrap())
+    }
+
+    /// 应用颜色反射处理 Partial（根据灰度模式预处理）
+    pub fn apply_color_reflection_partial_with_mode(
+        original_img: &DynamicImage,
+        slider_values: &[f32],
+        mode: GrayscaleMode,
+    ) -> DynamicImage {
+        let gray_img = match mode {
+            GrayscaleMode::Default => Self::convert_to_grayscale_custom(original_img),
+            GrayscaleMode::Max => Self::convert_to_grayscale_max(original_img),
+            GrayscaleMode::Min => Self::convert_to_grayscale_min(original_img),
+        };
+
+        let mut sorted_values = slider_values.to_vec();
+        sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        let rgba_image = gray_img.to_rgba8();
+        let (width, height) = rgba_image.dimensions();
+        let mut pixels = rgba_image.into_raw();
+
+        let total_segments = sorted_values.len() + 2;
+        let segment_size = 255.0 / total_segments as f32;
+        let mut segment_colors = Vec::new();
+        segment_colors.push(0.0);
+        for i in 1..=sorted_values.len() {
+            let segment_start = i as f32 * segment_size;
+            let segment_end = (i + 1) as f32 * segment_size;
+            let segment_avg = (segment_start + segment_end) / 2.0;
+            segment_colors.push(segment_avg);
+        }
+        segment_colors.push(255.0);
+
+        for chunk in pixels.chunks_exact_mut(4) {
+            let r = chunk[0] as f32;
+            let g = chunk[1] as f32;
+            let b = chunk[2] as f32;
+            let a = chunk[3];
+
+            let gray_value = (0.299 * r + 0.587 * g + 0.114 * b) as u8;
+            let segment_value =
+                Self::get_segment_value_partial(gray_value, &sorted_values, &segment_colors);
+
+            if a == 0 {
+                chunk[0] = 0;
+                chunk[1] = 0;
+                chunk[2] = 0;
+                chunk[3] = 0;
+            } else {
+                chunk[0] = segment_value;
+                chunk[1] = segment_value;
+                chunk[2] = segment_value;
+                chunk[3] = 255;
+            }
+        }
+
+        DynamicImage::ImageRgba8(image::RgbaImage::from_raw(width, height, pixels).unwrap())
+    }
+
+    /// 获取区段值 - Partial模式
+    fn get_segment_value_partial(
+        gray_value: u8,
+        sorted_values: &[f32],
+        segment_colors: &[f32],
+    ) -> u8 {
+        let gray_f32 = gray_value as f32;
+
+        // 如果只有一个滑块，分成两个区段：小于滑块值用黑色，大于等于滑块值用白色
+        if sorted_values.len() == 1 {
+            if gray_f32 < sorted_values[0] {
+                return segment_colors[0] as u8; // 黑色
+            } else {
+                return segment_colors[2] as u8; // 白色
+            }
+        }
+
+        // 找到灰度值所在的区段
+        for i in 0..sorted_values.len() - 1 {
+            let segment_start = sorted_values[i];
+            let segment_end = sorted_values[i + 1];
+
+            if gray_f32 >= segment_start && gray_f32 <= segment_end {
+                // 返回对应的分段颜色
+                return segment_colors[i + 1] as u8;
+            }
+        }
+
+        // 处理边界情况
+        if gray_f32 <= sorted_values[0] {
+            // 小于第一个滑块的值，使用第一段颜色（纯黑色）
+            return segment_colors[0] as u8;
+        } else {
+            // 大于最后一个滑块的值，使用最后一段颜色（纯白色）
+            return segment_colors[segment_colors.len() - 1] as u8;
+        }
+    }
+
+    /// 清理图像 - 移除孤立的像素
+    pub fn clean_image(img: &DynamicImage) -> DynamicImage {
+        let rgba_image = img.to_rgba8();
+        let (width, height) = rgba_image.dimensions();
+        let pixels = rgba_image.into_raw();
+
+        // 创建结果像素数组
+        let mut result_pixels = pixels.clone();
+
+        // 遍历每个像素
+        for y in 0..height {
+            for x in 0..width {
+                let idx = (y * width + x) as usize * 4;
+                let a = pixels[idx + 3];
+
+                // 只处理非透明像素
+                if a != 0 {
+                    let current_color = (pixels[idx], pixels[idx + 1], pixels[idx + 2]);
+
+                    // 获取周围8个像素的颜色
+                    let mut neighbor_colors = Vec::new();
+
+                    for dy in -1..=1 {
+                        for dx in -1..=1 {
+                            if dx == 0 && dy == 0 {
+                                continue; // 跳过中心像素
+                            }
+
+                            let nx = x as i32 + dx;
+                            let ny = y as i32 + dy;
+
+                            // 检查边界
+                            if nx >= 0 && nx < width as i32 && ny >= 0 && ny < height as i32 {
+                                let nidx = (ny * width as i32 + nx) as usize * 4;
+                                let na = pixels[nidx + 3];
+
+                                // 只考虑非透明像素
+                                if na != 0 {
+                                    let neighbor_color =
+                                        (pixels[nidx], pixels[nidx + 1], pixels[nidx + 2]);
+                                    neighbor_colors.push(neighbor_color);
+                                }
+                            }
+                        }
+                    }
+
+                    // 如果当前像素颜色与所有邻居都不同，则替换它
+                    if !neighbor_colors.is_empty() && !neighbor_colors.contains(&current_color) {
+                        // 找到最常见的颜色
+                        let mut color_counts = std::collections::HashMap::new();
+                        for &color in &neighbor_colors {
+                            *color_counts.entry(color).or_insert(0) += 1;
+                        }
+
+                        // 找到出现次数最多的颜色
+                        let mut max_count = 0;
+                        let mut most_common_color = neighbor_colors[0];
+
+                        for (&color, &count) in &color_counts {
+                            if count > max_count
+                                || (count == max_count && color.0 > most_common_color.0)
+                            {
+                                max_count = count;
+                                most_common_color = color;
+                            }
+                        }
+
+                        // 替换当前像素颜色
+                        result_pixels[idx] = most_common_color.0;
+                        result_pixels[idx + 1] = most_common_color.1;
+                        result_pixels[idx + 2] = most_common_color.2;
+                        // alpha保持不变
+                    }
+                }
+            }
+        }
+
+        DynamicImage::ImageRgba8(image::RgbaImage::from_raw(width, height, result_pixels).unwrap())
+    }
+
+    /// 获取区段值
+    fn get_segment_value(gray_value: u8, sorted_values: &[f32]) -> u8 {
+        let gray_f32 = gray_value as f32;
+
+        // 如果只有一个滑块，分成两个区段：小于滑块值用第一段平均值，大于等于滑块值用第二段平均值
+        if sorted_values.len() == 1 {
+            if gray_f32 < sorted_values[0] {
+                // 第一段：0到滑块值的平均值
+                return ((0.0 + sorted_values[0]) / 2.0) as u8;
+            } else {
+                // 第二段：滑块值到255的平均值
+                return ((sorted_values[0] + 255.0) / 2.0) as u8;
+            }
+        }
+
+        // 找到灰度值所在的区段
+        for i in 0..sorted_values.len() - 1 {
+            let segment_start = sorted_values[i];
+            let segment_end = sorted_values[i + 1];
+
+            if gray_f32 >= segment_start && gray_f32 <= segment_end {
+                // 计算区段的平均值
+                let segment_avg = (segment_start + segment_end) / 2.0;
+                return segment_avg as u8;
+            }
+        }
+
+        // 处理边界情况
+        if gray_f32 <= sorted_values[0] {
+            // 小于第一个滑块的值，使用第一个区段的平均值
+            if sorted_values.len() > 1 {
+                let segment_avg = (0.0 + sorted_values[1]) / 2.0;
+                return segment_avg as u8;
+            } else {
+                return sorted_values[0] as u8;
+            }
+        } else {
+            // 大于最后一个滑块的值，使用最后一个区段的平均值
+            let last_idx = sorted_values.len() - 1;
+            if last_idx > 0 {
+                let segment_avg = (sorted_values[last_idx - 1] + 255.0) / 2.0;
+                return segment_avg as u8;
+            } else {
+                return sorted_values[last_idx] as u8;
+            }
+        }
+    }
+}
+
+/// UI工具函数
+pub struct UiUtils;
+
+impl UiUtils {
+    /// 绘制棋盘格背景
+    pub fn draw_checkerboard_background(ui: &mut egui::Ui) {
+        let rect = ui.available_rect_before_wrap();
+        let painter = ui.painter();
+
+        let checker_size = 20.0;
+        let cols = (rect.width() / checker_size).ceil() as i32;
+        let rows = (rect.height() / checker_size).ceil() as i32;
+
+        for row in 0..rows {
+            for col in 0..cols {
+                let x = rect.min.x + col as f32 * checker_size;
+                let y = rect.min.y + row as f32 * checker_size;
+
+                let checker_rect = egui::Rect::from_min_size(
+                    egui::Pos2::new(x, y),
+                    egui::Vec2::new(checker_size, checker_size),
+                );
+
+                let is_light = (row + col) % 2 == 0;
+                let color = if is_light {
+                    egui::Color32::from_gray(200)
+                } else {
+                    egui::Color32::from_gray(150)
+                };
+
+                painter.rect_filled(checker_rect, 0.0, color);
+            }
+        }
+    }
+}
+
+```
+
+已恢复并修复你刚才改错的部分，应用可正常编译运行。
+
+- 恢复了 `utils.rs` 中缺失的函数：
+  - 重新添加 `apply_color_reflection_with_mode`，供“Average”模式在执行“Confirm Reflection”时先按选定灰度模式预处理，再做分段映射。
+- 保留了你改动的 `ComboBox::from_id_salt("bw_mode")` 与格式化的选择项写法（无功能性问题）。
+- 目前 `ColorReflectionWindow` 在执行“Confirm Reflection”时：
+  - Average → `ImageProcessor::apply_color_reflection_with_mode(...)`
+  - Partial → `ImageProcessor::apply_color_reflection_partial_with_mode(...)`
+- 工具栏的“Black & White Mode”下拉选项会影响“Black & White”按钮与“Confirm Reflection”的预处理。
+
+已编译验证通过。唯一提示为未使用函数告警：`apply_color_reflection`（无害，可保留以备回退或直接删除）。
+
+- 修改文件：`src/utils.rs`、`src/main_window.rs`
+- 关键修复：补回 `apply_color_reflection_with_mode`，确保反射时的预处理模式生效
 
