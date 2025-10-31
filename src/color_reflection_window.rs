@@ -1,7 +1,7 @@
 use egui;
 use image::DynamicImage;
 use std::path::PathBuf;
-use crate::utils::ImageProcessor;
+use crate::utils::{GrayscaleMode, ImageProcessor};
 
 /// Color Reflection窗口的状态
 pub struct ColorReflectionWindow {
@@ -32,7 +32,7 @@ impl Default for ColorReflectionWindow {
 
 impl ColorReflectionWindow {
     /// 显示Color Reflection窗口
-    pub fn show(&mut self, ctx: &egui::Context, original_image: &Option<DynamicImage>, current_texture: &mut Option<egui::TextureHandle>, temp_path: &Option<PathBuf>) {
+    pub fn show(&mut self, ctx: &egui::Context, original_image: &Option<DynamicImage>, current_texture: &mut Option<egui::TextureHandle>, temp_path: &Option<PathBuf>, grayscale_mode: &GrayscaleMode) {
         if self.show_window {
             let mut show_window = self.show_window;
             egui::Window::new("Color Reflection")
@@ -40,7 +40,7 @@ impl ColorReflectionWindow {
                 .default_size([800.0, 600.0])
                 .resizable(true)
                 .show(ctx, |ui| {
-                    self.show_content(ui, ctx, original_image, current_texture, temp_path);
+                    self.show_content(ui, ctx, original_image, current_texture, temp_path, grayscale_mode);
                 });
             self.show_window = show_window;
         }
@@ -54,6 +54,7 @@ impl ColorReflectionWindow {
         original_image: &Option<DynamicImage>,
         current_texture: &mut Option<egui::TextureHandle>,
         temp_path: &Option<PathBuf>,
+        grayscale_mode: &GrayscaleMode,
     ) {
         ui.heading("Color Reflection");
         ui.separator();
@@ -125,7 +126,7 @@ impl ColorReflectionWindow {
 
         // Confirm Reflection 按钮
         if ui.button("Confirm Reflection").clicked() {
-            self.apply_color_reflection(ctx, original_image, current_texture, temp_path);
+            self.apply_color_reflection(ctx, original_image, current_texture, temp_path, grayscale_mode);
         }
 
         ui.add_space(10.0);
@@ -269,6 +270,7 @@ impl ColorReflectionWindow {
         original_image: &Option<DynamicImage>,
         current_texture: &mut Option<egui::TextureHandle>,
         temp_path: &Option<PathBuf>,
+        grayscale_mode: &GrayscaleMode,
     ) {
         if let Some(original_img) = original_image {
             if self.slider_values.is_empty() {
@@ -279,10 +281,10 @@ impl ColorReflectionWindow {
             // 根据选择的模式应用颜色反射处理
             let processed_img = match self.reflection_mode {
                 ReflectionMode::Average => {
-                    ImageProcessor::apply_color_reflection(original_img, &self.slider_values)
+                    ImageProcessor::apply_color_reflection_with_mode(original_img, &self.slider_values, *grayscale_mode)
                 }
                 ReflectionMode::Partial => {
-                    ImageProcessor::apply_color_reflection_partial(original_img, &self.slider_values)
+                    ImageProcessor::apply_color_reflection_partial_with_mode(original_img, &self.slider_values, *grayscale_mode)
                 }
             };
 

@@ -1,9 +1,9 @@
+use crate::color_reflection_window::ColorReflectionWindow;
+use crate::utils::{GrayscaleMode, ImageProcessor, UiUtils};
 use egui;
 use image::DynamicImage;
-use std::path::PathBuf;
 use std::fs;
-use crate::utils::{ImageProcessor, UiUtils};
-use crate::color_reflection_window::ColorReflectionWindow;
+use std::path::PathBuf;
 
 /// 主窗口的状态
 pub struct MainWindow {
@@ -15,6 +15,7 @@ pub struct MainWindow {
     pub is_grayscale: bool,
     pub temp_path: Option<PathBuf>,
     pub color_reflection_window: ColorReflectionWindow,
+    pub grayscale_mode: GrayscaleMode,
 }
 
 impl Default for MainWindow {
@@ -28,6 +29,7 @@ impl Default for MainWindow {
             is_grayscale: false,
             temp_path: None,
             color_reflection_window: ColorReflectionWindow::default(),
+            grayscale_mode: GrayscaleMode::Default,
         }
     }
 }
@@ -74,6 +76,30 @@ impl MainWindow {
                     if ui.button("Original").clicked() {
                         self.original(ctx);
                     }
+                    ui.label("Black & White Mode:");
+                    egui::ComboBox::from_id_salt("bw_mode")
+                        .selected_text(match self.grayscale_mode {
+                            GrayscaleMode::Default => "default",
+                            GrayscaleMode::Max => "max",
+                            GrayscaleMode::Min => "min",
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.grayscale_mode,
+                                GrayscaleMode::Default,
+                                "default",
+                            );
+                            ui.selectable_value(
+                                &mut self.grayscale_mode,
+                                GrayscaleMode::Max,
+                                "max",
+                            );
+                            ui.selectable_value(
+                                &mut self.grayscale_mode,
+                                GrayscaleMode::Min,
+                                "min",
+                            );
+                        });
                     if ui.button("Black & White").clicked() {
                         self.toggle_grayscale(ctx);
                     }
@@ -96,7 +122,7 @@ impl MainWindow {
                         ui.centered_and_justified(|ui| {
                             ui.label(format!("Zoom: {:.1}%", self.zoom_factor * 100.0));
                         });
-                    }
+                    },
                 );
 
                 // 右侧空白区域（保持布局平衡）
@@ -114,6 +140,7 @@ impl MainWindow {
             &self.original_image,
             &mut self.current_texture,
             &self.temp_path,
+            &self.grayscale_mode,
         );
     }
 
@@ -206,7 +233,8 @@ impl MainWindow {
                     minification: egui::TextureFilter::Nearest,
                     ..Default::default()
                 };
-                self.current_texture = Some(ctx.load_texture("loaded_image", color_image, texture_options));
+                self.current_texture =
+                    Some(ctx.load_texture("loaded_image", color_image, texture_options));
                 self.current_path = Some(path.to_path_buf());
                 self.zoom_factor = 1.0;
                 self.pan_offset = egui::Vec2::ZERO;
@@ -233,11 +261,20 @@ impl MainWindow {
             let processed_img = if self.is_grayscale {
                 original_img.clone()
             } else {
-                ImageProcessor::convert_to_grayscale_custom(original_img)
+                match self.grayscale_mode {
+                    GrayscaleMode::Default => {
+                        ImageProcessor::convert_to_grayscale_custom(original_img)
+                    }
+                    GrayscaleMode::Max => ImageProcessor::convert_to_grayscale_max(original_img),
+                    GrayscaleMode::Min => ImageProcessor::convert_to_grayscale_min(original_img),
+                }
             };
 
             self.is_grayscale = !self.is_grayscale;
-            self.current_texture = Some(ImageProcessor::update_texture_from_image(&processed_img, ctx));
+            self.current_texture = Some(ImageProcessor::update_texture_from_image(
+                &processed_img,
+                ctx,
+            ));
             if let Some(temp_path) = &self.temp_path {
                 let _ = ImageProcessor::save_to_temp(&processed_img, temp_path);
             }
@@ -248,7 +285,10 @@ impl MainWindow {
     fn original(&mut self, ctx: &egui::Context) {
         if let Some(original_img) = self.original_image.clone() {
             self.is_grayscale = false;
-            self.current_texture = Some(ImageProcessor::update_texture_from_image(&original_img, ctx));
+            self.current_texture = Some(ImageProcessor::update_texture_from_image(
+                &original_img,
+                ctx,
+            ));
             if let Some(temp_path) = &self.temp_path {
                 let _ = ImageProcessor::save_to_temp(&original_img, temp_path);
             }
@@ -279,7 +319,8 @@ impl MainWindow {
                 match image::open(temp_path) {
                     Ok(current_img) => {
                         let cleaned_img = ImageProcessor::clean_image(&current_img);
-                        self.current_texture = Some(ImageProcessor::update_texture_from_image(&cleaned_img, ctx));
+                        self.current_texture =
+                            Some(ImageProcessor::update_texture_from_image(&cleaned_img, ctx));
                         let _ = ImageProcessor::save_to_temp(&cleaned_img, temp_path);
                         println!("Image cleaned successfully");
                     }
