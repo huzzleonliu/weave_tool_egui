@@ -270,7 +270,7 @@ impl MainWindow {
                 }
             };
 
-            self.is_grayscale = !self.is_grayscale;
+            // self.is_grayscale = !self.is_grayscale;
             self.current_texture = Some(ImageProcessor::update_texture_from_image(
                 &processed_img,
                 ctx,
