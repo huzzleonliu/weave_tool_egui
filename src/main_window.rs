@@ -12,7 +12,6 @@ pub struct MainWindow {
     pub zoom_factor: f32,
     pub pan_offset: egui::Vec2,
     pub original_image: Option<DynamicImage>,
-    pub is_grayscale: bool,
     pub temp_path: Option<PathBuf>,
     pub color_reflection_window: ColorReflectionWindow,
     pub grayscale_mode: GrayscaleMode,
@@ -26,7 +25,6 @@ impl Default for MainWindow {
             zoom_factor: 1.0,
             pan_offset: egui::Vec2::ZERO,
             original_image: None,
-            is_grayscale: false,
             temp_path: None,
             color_reflection_window: ColorReflectionWindow::default(),
             grayscale_mode: GrayscaleMode::Default,
@@ -101,7 +99,7 @@ impl MainWindow {
                             );
                         });
                     if ui.button("Black & White").clicked() {
-                        self.toggle_grayscale(ctx);
+                        self.apply_grayscale_current_mode(ctx);
                     }
                     if ui.button("Fast Save").clicked() {
                         self.fast_save();
@@ -221,7 +219,6 @@ impl MainWindow {
         match image::open(path) {
             Ok(img) => {
                 self.original_image = Some(img.clone());
-                self.is_grayscale = false;
 
                 let rgba_image = img.to_rgba8();
                 let size = [rgba_image.width() as usize, rgba_image.height() as usize];
@@ -255,22 +252,17 @@ impl MainWindow {
         }
     }
 
-    /// 切换灰度
-    fn toggle_grayscale(&mut self, ctx: &egui::Context) {
+    /// 应用当前模式的灰度（非切换，直接应用）
+    fn apply_grayscale_current_mode(&mut self, ctx: &egui::Context) {
         if let Some(original_img) = &self.original_image {
-            let processed_img = if self.is_grayscale {
-                original_img.clone()
-            } else {
-                match self.grayscale_mode {
-                    GrayscaleMode::Default => {
-                        ImageProcessor::convert_to_grayscale_custom(original_img)
-                    }
-                    GrayscaleMode::Max => ImageProcessor::convert_to_grayscale_max(original_img),
-                    GrayscaleMode::Min => ImageProcessor::convert_to_grayscale_min(original_img),
+            let processed_img = match self.grayscale_mode {
+                GrayscaleMode::Default => {
+                    ImageProcessor::convert_to_grayscale_custom(original_img)
                 }
+                GrayscaleMode::Max => ImageProcessor::convert_to_grayscale_max(original_img),
+                GrayscaleMode::Min => ImageProcessor::convert_to_grayscale_min(original_img),
             };
 
-            // self.is_grayscale = !self.is_grayscale;
             self.current_texture = Some(ImageProcessor::update_texture_from_image(
                 &processed_img,
                 ctx,
@@ -284,7 +276,6 @@ impl MainWindow {
     /// 恢复原始图片
     fn original(&mut self, ctx: &egui::Context) {
         if let Some(original_img) = self.original_image.clone() {
-            self.is_grayscale = false;
             self.current_texture = Some(ImageProcessor::update_texture_from_image(
                 &original_img,
                 ctx,

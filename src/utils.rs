@@ -127,50 +127,7 @@ impl ImageProcessor {
         DynamicImage::ImageRgba8(image::RgbaImage::from_raw(width, height, pixels).unwrap())
     }
 
-    /// 应用颜色反射处理
-    pub fn apply_color_reflection(
-        original_img: &DynamicImage,
-        slider_values: &[f32],
-    ) -> DynamicImage {
-        // 创建排序后的滑块值
-        let mut sorted_values = slider_values.to_vec();
-        sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
-
-        // 使用自定义灰度转换函数
-        let gray_img = Self::convert_to_grayscale_custom(original_img);
-        let rgba_image = gray_img.to_rgba8();
-        let (width, height) = rgba_image.dimensions();
-        let mut pixels = rgba_image.into_raw();
-
-        // 处理每个像素
-        for chunk in pixels.chunks_exact_mut(4) {
-            let r = chunk[0] as f32;
-            let g = chunk[1] as f32;
-            let b = chunk[2] as f32;
-            let a = chunk[3];
-
-            // 计算灰度值 (使用ITU-R BT.601标准)
-            let gray_value = (0.299 * r + 0.587 * g + 0.114 * b) as u8;
-
-            // 找到灰度值对应的区段
-            let segment_value = Self::get_segment_value(gray_value, &sorted_values);
-
-            // 设置新的RGB值
-            if a == 0 {
-                chunk[0] = 0;
-                chunk[1] = 0;
-                chunk[2] = 0;
-                chunk[3] = 0;
-            } else {
-                chunk[0] = segment_value;
-                chunk[1] = segment_value;
-                chunk[2] = segment_value;
-                chunk[3] = 255;
-            }
-        }
-
-        DynamicImage::ImageRgba8(image::RgbaImage::from_raw(width, height, pixels).unwrap())
-    }
+    // 删除：旧的未使用 average 版本（避免 dead_code 警告）
 
     /// 应用颜色反射处理（根据灰度模式预处理）
     pub fn apply_color_reflection_with_mode(
