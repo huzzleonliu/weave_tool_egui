@@ -227,6 +227,11 @@ impl MainWindow {
     fn load_image(&mut self, ctx: &egui::Context, path: &std::path::Path) {
         match image::open(path) {
             Ok(img) => {
+                // 清理上一张图片的临时文件
+                if let Some(old_temp) = self.temp_path.take() {
+                    let _ = fs::remove_file(old_temp);
+                }
+
                 self.original_image = Some(img.clone());
 
                 let rgba_image = img.to_rgba8();
