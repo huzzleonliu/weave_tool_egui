@@ -104,6 +104,9 @@ impl MainWindow {
                     if ui.button("Fast Save").clicked() {
                         self.fast_save();
                     }
+                    if ui.button("Save With Anchors").clicked() {
+                        self.save_with_anchors();
+                    }
                     if ui.button("Color Reflection").clicked() {
                         self.color_reflection_window.show_window = true;
                     }
@@ -138,7 +141,8 @@ impl MainWindow {
             &self.original_image,
             &mut self.current_texture,
             &self.temp_path,
-            &self.grayscale_mode,
+            &self.current_path,
+            &mut self.grayscale_mode,
         );
     }
 
@@ -207,10 +211,15 @@ impl MainWindow {
     /// 打开图片对话框
     fn open_image_dialog(&mut self, ctx: &egui::Context) {
         if let Some(path) = rfd::FileDialog::new()
-            .add_filter("Image files", &["png", "jpg", "jpeg", "bmp", "gif", "tiff"])
+            .add_filter("PNG images", &["png"]) 
             .pick_file()
         {
-            self.load_image(ctx, &path);
+            // 进一步校验扩展名
+            if path.extension().and_then(|s| s.to_str()).map(|s| s.eq_ignore_ascii_case("png")).unwrap_or(false) {
+                self.load_image(ctx, &path);
+            } else {
+                eprintln!("Only PNG format is supported");
+            }
         }
     }
 
@@ -299,6 +308,52 @@ impl MainWindow {
             }
         } else {
             eprintln!("No image loaded or temp file not available for saving");
+        }
+    }
+
+    /// 保存并将颜色映射的锚点写入PNG文本元数据
+    fn save_with_anchors(&self) {
+        if let (Some(current_path), Some(temp_path)) = (&self.current_path, &self.temp_path) {
+            if let Some(json) = self
+                .color_reflection_window
+                .build_anchors_metadata_json(&self.grayscale_mode)
+            {
+                match crate::utils::ImageProcessor::write_png_with_text_from_path(
+                    temp_path.as_path(),
+                    current_path.as_path(),
+                    "anchors",
+                    &json,
+                ) {
+                    Ok(_) => {
+                        println!(
+                            "Image with anchors metadata saved to: {}",
+                            current_path.display()
+                        );
+                        // 验证：立即读取并打印元数据，证明写入成功
+                        if let Ok(Some(verified)) = crate::utils::ImageProcessor::read_png_text_value_from_path(
+                            current_path.as_path(),
+                            "anchors",
+                        ) {
+                            println!("Metadata verified: {}", verified);
+                        } else {
+                            println!("Warning: Could not verify metadata after save");
+                        }
+                    }
+                    Err(e) => eprintln!("Failed to save image with anchors metadata: {}", e),
+                }
+
+                // 同步更新临时文件也带有元数据，便于会话内读取
+                let _ = crate::utils::ImageProcessor::write_png_with_text_from_path(
+                    temp_path.as_path(),
+                    temp_path.as_path(),
+                    "anchors",
+                    &json,
+                );
+            } else {
+                eprintln!("No color reflection anchors available to write into metadata");
+            }
+        } else {
+            eprintln!("No image loaded or temp file not available for saving with anchors");
         }
     }
 

@@ -395,6 +395,75 @@ impl ImageProcessor {
             }
         }
     }
+
+    /// 将PNG写入包含文本元数据（tEXt）
+    pub fn write_png_with_text_from_path(
+        temp_path: &std::path::Path,
+        out_path: &std::path::Path,
+        key: &str,
+        value: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let img = image::open(temp_path)?;
+        let rgba = img.to_rgba8();
+        let (width, height) = rgba.dimensions();
+        let pixels = rgba.into_raw();
+
+        let file = std::fs::File::create(out_path)?;
+        let writer = std::io::BufWriter::new(file);
+        let mut encoder = png::Encoder::new(writer, width, height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        // 写入文本元数据（键值）
+        encoder.add_text_chunk(key.to_string(), value.to_string())?;
+        let mut png_writer = encoder.write_header()?;
+        png_writer.write_image_data(&pixels)?;
+        Ok(())
+    }
+
+    /// 从PNG文件读取指定tEXt键的值（Latin-1文本），若无则返回None
+    pub fn read_png_text_value_from_path(
+        path: &std::path::Path,
+        key: &str,
+    ) -> Result<Option<String>, Box<dyn std::error::Error>> {
+        use std::io::Read;
+        let mut f = std::fs::File::open(path)?;
+        let mut buf = Vec::new();
+        f.read_to_end(&mut buf)?;
+
+        // PNG签名
+        let signature: [u8; 8] = [137, 80, 78, 71, 13, 10, 26, 10];
+        if buf.len() < 8 || &buf[0..8] != signature {
+            return Ok(None);
+        }
+
+        let mut idx = 8;
+        while idx + 12 <= buf.len() {
+            let length = u32::from_be_bytes([buf[idx], buf[idx + 1], buf[idx + 2], buf[idx + 3]]) as usize;
+            let ctype = &buf[idx + 4..idx + 8];
+            let data_start = idx + 8;
+            let data_end = data_start + length;
+            if data_end + 4 > buf.len() { break; }
+
+            if ctype == b"tEXt" {
+                // 文本数据：keyword(1-79) + 0x00 + text
+                let data = &buf[data_start..data_end];
+                if let Some(pos) = data.iter().position(|&b| b == 0) {
+                    let keyword = &data[..pos];
+                    let text_bytes = &data[pos + 1..];
+                    if keyword == key.as_bytes() {
+                        // Latin-1转String
+                        let s: String = text_bytes.iter().map(|&b| b as char).collect();
+                        return Ok(Some(s));
+                    }
+                }
+            }
+
+            // 跳到下一个chunk（包含CRC）
+            idx = data_end + 4;
+            if ctype == b"IEND" { break; }
+        }
+        Ok(None)
+    }
 }
 
 /// UI工具函数

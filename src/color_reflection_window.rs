@@ -10,9 +10,14 @@ pub struct ColorReflectionWindow {
     pub slider_amount: Option<usize>,
     pub slider_values: Vec<f32>,
     pub reflection_mode: ReflectionMode,
+    // 最近一次应用反射时的状态快照
+    pub last_applied_slider_values: Option<Vec<f32>>,
+    pub last_reflection_mode: Option<ReflectionMode>,
+    pub has_applied_reflection: bool,
+    pub message: Option<String>,
 }
 
-#[derive(PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum ReflectionMode {
     Average,
     Partial,
@@ -26,13 +31,17 @@ impl Default for ColorReflectionWindow {
             slider_amount: None,
             slider_values: Vec::new(),
             reflection_mode: ReflectionMode::Average,
+            last_applied_slider_values: None,
+            last_reflection_mode: None,
+            has_applied_reflection: false,
+            message: None,
         }
     }
 }
 
 impl ColorReflectionWindow {
     /// 显示Color Reflection窗口
-    pub fn show(&mut self, ctx: &egui::Context, original_image: &Option<DynamicImage>, current_texture: &mut Option<egui::TextureHandle>, temp_path: &Option<PathBuf>, grayscale_mode: &GrayscaleMode) {
+    pub fn show(&mut self, ctx: &egui::Context, original_image: &Option<DynamicImage>, current_texture: &mut Option<egui::TextureHandle>, temp_path: &Option<PathBuf>, current_path: &Option<PathBuf>, grayscale_mode: &mut GrayscaleMode) {
         if self.show_window {
             let mut show_window = self.show_window;
             egui::Window::new("Color Reflection")
@@ -40,9 +49,24 @@ impl ColorReflectionWindow {
                 .default_size([800.0, 600.0])
                 .resizable(true)
                 .show(ctx, |ui| {
-                    self.show_content(ui, ctx, original_image, current_texture, temp_path, grayscale_mode);
+                    self.show_content(ui, ctx, original_image, current_texture, temp_path, current_path, grayscale_mode);
                 });
             self.show_window = show_window;
+
+            // 简单提示窗口（克隆消息，避免借用冲突）
+            if let Some(msg_owned) = self.message.clone() {
+                let mut open = true;
+                let mut clear_message = false;
+                egui::Window::new("Info")
+                    .open(&mut open)
+                    .collapsible(false)
+                    .resizable(false)
+                    .show(ctx, |ui| {
+                        ui.label(msg_owned);
+                        if ui.button("OK").clicked() { clear_message = true; }
+                    });
+                if clear_message || !open { self.message = None; }
+            }
         }
     }
 
@@ -54,13 +78,16 @@ impl ColorReflectionWindow {
         original_image: &Option<DynamicImage>,
         current_texture: &mut Option<egui::TextureHandle>,
         temp_path: &Option<PathBuf>,
-        grayscale_mode: &GrayscaleMode,
+        current_path: &Option<PathBuf>,
+        grayscale_mode: &mut GrayscaleMode,
     ) {
         ui.heading("Color Reflection");
         ui.separator();
 
         // 第一行：滑块数量输入框和确认按钮
         ui.horizontal(|ui| {
+            
+
             ui.label("Slider amount");
 
             // 输入框，限制输入为1-10的正整数
@@ -86,6 +113,35 @@ impl ColorReflectionWindow {
                         self.slider_amount = Some(amount);
                         self.update_slider_values();
                     }
+                }
+            }
+
+            if ui.button("Load Anchors From PNG").clicked() {
+                // 优先读取当前文件，如无则回退到临时文件
+                let pick_path = current_path.as_ref().or(temp_path.as_ref());
+                if let Some(p) = pick_path {
+                    match crate::utils::ImageProcessor::read_png_text_value_from_path(p.as_path(), "anchors") {
+                        Ok(Some(json)) => {
+                            if let Some(vals) = Self::parse_anchors_from_json(&json) {
+                                self.slider_amount = Some(vals.len());
+                                self.slider_amount_input = vals.len().to_string();
+                                self.slider_values = vals;
+                                if let Some(g) = Self::parse_grayscale_from_json(&json) {
+                                    *grayscale_mode = g;
+                                }
+                            } else {
+                                self.message = Some("No slider anchors found in metadata".to_string());
+                            }
+                        }
+                        Ok(None) => {
+                            self.message = Some("No slider anchors found in metadata".to_string());
+                        }
+                        Err(e) => {
+                            self.message = Some(format!("Failed to read anchors: {}", e));
+                        }
+                    }
+                } else {
+                    self.message = Some("No temp image available".to_string());
                 }
             }
         });
@@ -129,11 +185,9 @@ impl ColorReflectionWindow {
             self.apply_color_reflection(ctx, original_image, current_texture, temp_path, grayscale_mode);
         }
 
-        ui.add_space(10.0);
 
-        if ui.button("Close Window").clicked() {
-            self.show_window = false;
-        }
+
+
     }
 
     /// 绘制滑动条轨道
@@ -265,7 +319,7 @@ impl ColorReflectionWindow {
 
     /// 应用颜色反射处理
     fn apply_color_reflection(
-        &self,
+        &mut self,
         ctx: &egui::Context,
         original_image: &Option<DynamicImage>,
         current_texture: &mut Option<egui::TextureHandle>,
@@ -298,9 +352,88 @@ impl ColorReflectionWindow {
                 }
             }
 
+            // 记录快照以便后续保存元数据
+            self.snapshot_after_apply();
+
             println!("Color reflection applied successfully");
         } else {
             eprintln!("No image loaded for color reflection");
+        }
+    }
+}
+
+impl ColorReflectionWindow {
+    /// 在反射应用成功后记录快照（供保存元数据使用）
+    pub fn snapshot_after_apply(&mut self) {
+        self.last_applied_slider_values = Some(self.slider_values.clone());
+        self.last_reflection_mode = Some(self.reflection_mode.clone());
+        self.has_applied_reflection = true;
+    }
+
+    /// 构造包含锚点与模式信息的JSON字符串
+    pub fn build_anchors_metadata_json(&self, grayscale_mode: &GrayscaleMode) -> Option<String> {
+        if !self.has_applied_reflection {
+            return None;
+        }
+        let anchors = self
+            .last_applied_slider_values
+            .as_ref()
+            .map(|v| {
+                let values = v.iter().map(|x| format!("{:.0}", x)).collect::<Vec<_>>();
+                format!("[{}]", values.join(","))
+            })?;
+
+        let reflection = match self.last_reflection_mode.as_ref()? {
+            ReflectionMode::Average => "Average",
+            ReflectionMode::Partial => "Partial",
+        };
+        let gray = match grayscale_mode {
+            GrayscaleMode::Default => "Default",
+            GrayscaleMode::Max => "Max",
+            GrayscaleMode::Min => "Min",
+        };
+
+        // 简单JSON（避免引入serde依赖）
+        let json = format!(
+            "{{\"anchors\":{},\"reflectionMode\":\"{}\",\"grayscaleMode\":\"{}\"}}",
+            anchors, reflection, gray
+        );
+        Some(json)
+    }
+
+    /// 解析JSON字符串中的 anchors 数组（不依赖serde）
+    fn parse_anchors_from_json(json: &str) -> Option<Vec<f32>> {
+        // 查找 "anchors":[...]
+        let key = "\"anchors\"";
+        let idx = json.find(key)?;
+        let after = &json[idx + key.len()..];
+        let lb = after.find('[')?;
+        let after_lb = &after[lb + 1..];
+        let rb = after_lb.find(']')?;
+        let inside = &after_lb[..rb];
+        let mut vals = Vec::new();
+        for part in inside.split(',') {
+            let t = part.trim();
+            if t.is_empty() { continue; }
+            if let Ok(v) = t.parse::<f32>() { vals.push(v); }
+        }
+        if vals.is_empty() { None } else { Some(vals) }
+    }
+
+    /// 解析 grayscaleMode 字段
+    fn parse_grayscale_from_json(json: &str) -> Option<crate::utils::GrayscaleMode> {
+        let key = "\"grayscaleMode\"";
+        let idx = json.find(key)?;
+        let after = &json[idx + key.len()..];
+        let q1 = after.find('"')?; // 开始引号
+        let rest = &after[q1 + 1..];
+        let q2 = rest.find('"')?; // 结束引号
+        let val = &rest[..q2];
+        match val {
+            "Default" => Some(crate::utils::GrayscaleMode::Default),
+            "Max" => Some(crate::utils::GrayscaleMode::Max),
+            "Min" => Some(crate::utils::GrayscaleMode::Min),
+            _ => None,
         }
     }
 }
