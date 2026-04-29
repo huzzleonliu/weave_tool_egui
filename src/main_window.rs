@@ -234,18 +234,7 @@ impl MainWindow {
 
                 self.original_image = Some(img.clone());
 
-                let rgba_image = img.to_rgba8();
-                let size = [rgba_image.width() as usize, rgba_image.height() as usize];
-                let pixels = rgba_image.into_raw();
-
-                let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &pixels);
-                let texture_options = egui::TextureOptions {
-                    magnification: egui::TextureFilter::Nearest,
-                    minification: egui::TextureFilter::Nearest,
-                    ..Default::default()
-                };
-                self.current_texture =
-                    Some(ctx.load_texture("loaded_image", color_image, texture_options));
+                self.current_texture = Some(ImageProcessor::update_texture_from_image(&img, ctx));
                 self.current_path = Some(path.to_path_buf());
                 self.zoom_factor = 1.0;
                 self.pan_offset = egui::Vec2::ZERO;

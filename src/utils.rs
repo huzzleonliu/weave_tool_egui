@@ -12,12 +12,31 @@ pub enum GrayscaleMode {
 }
 
 impl ImageProcessor {
+    const MAX_TEXTURE_SIDE: u32 = 16_384;
+
+    fn resize_for_texture(img: &DynamicImage) -> DynamicImage {
+        let width = img.width();
+        let height = img.height();
+
+        if width <= Self::MAX_TEXTURE_SIDE && height <= Self::MAX_TEXTURE_SIDE {
+            return img.clone();
+        }
+
+        let scale = (Self::MAX_TEXTURE_SIDE as f32 / width as f32)
+            .min(Self::MAX_TEXTURE_SIDE as f32 / height as f32);
+        let new_width = ((width as f32 * scale).round().max(1.0)) as u32;
+        let new_height = ((height as f32 * scale).round().max(1.0)) as u32;
+
+        img.resize_exact(new_width, new_height, image::imageops::FilterType::Triangle)
+    }
+
     /// 更新纹理从图像
     pub fn update_texture_from_image(
         img: &DynamicImage,
         ctx: &egui::Context,
     ) -> egui::TextureHandle {
-        let rgba_image = img.to_rgba8();
+        let resized_for_texture = Self::resize_for_texture(img);
+        let rgba_image = resized_for_texture.to_rgba8();
         let size = [rgba_image.width() as usize, rgba_image.height() as usize];
         let pixels = rgba_image.into_raw();
 
